@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "hal_i2c.h"
 #include "proto_cfg.h"
 
 static sns_status_t proto_i2c_device_validate(const proto_i2c_device_t *device)

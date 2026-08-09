@@ -3,8 +3,9 @@
 
 #include <stdint.h>
 
-#include "hal_time.h"
 #include "util_status.h"
+
+typedef struct hal_time hal_time_t;
 
 typedef struct {
     hal_time_t *time;

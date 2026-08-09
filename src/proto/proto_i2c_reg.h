@@ -3,8 +3,9 @@
 
 #include <stdint.h>
 
-#include "hal_i2c.h"
 #include "util_status.h"
+
+typedef struct hal_i2c hal_i2c_t;
 
 typedef struct {
     hal_i2c_t *bus;

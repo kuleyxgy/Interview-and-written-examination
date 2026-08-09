@@ -3,6 +3,8 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "hal_net.h"
+
 static uint8_t proto_mqtt_time_reached(uint32_t now_ms, uint32_t deadline_ms)
 {
     return ((uint32_t)(now_ms - deadline_ms) < UINT32_C(0x80000000)) ? 1U : 0U;

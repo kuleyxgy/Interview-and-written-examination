@@ -3,9 +3,10 @@
 
 #include <stdint.h>
 
-#include "hal_net.h"
 #include "proto_cfg.h"
 #include "util_status.h"
+
+typedef struct hal_net hal_net_t;
 
 #define PROTO_MQTT_PACKET_CAPACITY   PROTO_CFG_MQTT_MAX_PACKET
 #define PROTO_MQTT_HOST_CAPACITY     PROTO_CFG_MQTT_HOST_CAPACITY

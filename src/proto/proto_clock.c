@@ -2,6 +2,8 @@
 
 #include <stddef.h>
 
+#include "hal_time.h"
+
 sns_status_t proto_clock_init(proto_clock_t *clock, hal_time_t *time)
 {
     if ((clock == NULL) || (time == NULL) ||
