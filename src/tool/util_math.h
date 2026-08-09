@@ -3,7 +3,11 @@
 
 #include <stdint.h>
 
-int64_t util_div_round_nearest_i64(int64_t numerator, int64_t denominator);
+#include "util_status.h"
+
+sns_status_t util_div_round_nearest_i64(int64_t numerator,
+                                        int64_t denominator,
+                                        int64_t *result);
 int32_t util_sat_i64_to_i32(int64_t value);
 
 #endif

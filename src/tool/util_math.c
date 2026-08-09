@@ -12,17 +12,20 @@ static uint64_t util_abs_i64_to_u64(int64_t value)
     return (uint64_t)value;
 }
 
-int64_t util_div_round_nearest_i64(int64_t numerator, int64_t denominator)
+sns_status_t util_div_round_nearest_i64(int64_t numerator,
+                                        int64_t denominator,
+                                        int64_t *result)
 {
     int64_t quotient;
     int64_t remainder;
     uint64_t threshold;
 
-    if (denominator == 0) {
-        return 0;
+    if ((denominator == 0) || (result == NULL)) {
+        return SNS_ERR_PARAM;
     }
     if ((numerator == INT64_MIN) && (denominator == -1)) {
-        return INT64_MAX;
+        *result = INT64_MAX;
+        return SNS_OK;
     }
 
     quotient = numerator / denominator;
@@ -38,7 +41,8 @@ int64_t util_div_round_nearest_i64(int64_t numerator, int64_t denominator)
         }
     }
 
-    return quotient;
+    *result = quotient;
+    return SNS_OK;
 }
 
 int32_t util_sat_i64_to_i32(int64_t value)

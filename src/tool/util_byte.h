@@ -3,7 +3,9 @@
 
 #include <stdint.h>
 
-uint16_t util_be16_read(const uint8_t *bytes);
-void util_be16_write(uint8_t *bytes, uint16_t value);
+#include "util_status.h"
+
+sns_status_t util_be16_read(const uint8_t *bytes, uint16_t capacity, uint16_t *value);
+sns_status_t util_be16_write(uint8_t *bytes, uint16_t capacity, uint16_t value);
 
 #endif
