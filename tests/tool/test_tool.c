@@ -19,20 +19,54 @@ TEST(status_name_maps_known_and_unknown_codes)
 TEST(be16_round_trip_uses_network_order)
 {
     uint8_t bytes[2] = { 0U, 0U };
+    uint16_t value = 0U;
 
-    util_be16_write(bytes, UINT16_C(0xBEEF));
+    TEST_ASSERT_EQ_I32(SNS_OK, util_be16_write(bytes, (uint16_t)sizeof(bytes), UINT16_C(0xBEEF)));
 
     TEST_ASSERT_EQ_U16(UINT16_C(0x00BE), bytes[0]);
     TEST_ASSERT_EQ_U16(UINT16_C(0x00EF), bytes[1]);
-    TEST_ASSERT_EQ_U16(UINT16_C(0xBEEF), util_be16_read(bytes));
+    TEST_ASSERT_EQ_I32(SNS_OK, util_be16_read(bytes, (uint16_t)sizeof(bytes), &value));
+    TEST_ASSERT_EQ_U16(UINT16_C(0xBEEF), value);
+}
+
+TEST(be16_rejects_null_and_short_buffers_without_changing_output)
+{
+    uint8_t bytes[2] = { UINT8_C(0x12), UINT8_C(0x34) };
+    uint16_t value = UINT16_C(0xA55A);
+
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_be16_read(NULL, 2U, &value));
+    TEST_ASSERT_EQ_U16(UINT16_C(0xA55A), value);
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_be16_read(bytes, 1U, &value));
+    TEST_ASSERT_EQ_U16(UINT16_C(0xA55A), value);
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_be16_read(bytes, 2U, NULL));
+
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_be16_write(NULL, 2U, UINT16_C(0xBEEF)));
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_be16_write(bytes, 1U, UINT16_C(0xBEEF)));
+    TEST_ASSERT_EQ_U16(UINT16_C(0x0012), bytes[0]);
+    TEST_ASSERT_EQ_U16(UINT16_C(0x0034), bytes[1]);
 }
 
 TEST(rounded_division_rounds_positive_and_negative_halves_away_from_zero)
 {
-    TEST_ASSERT_EQ_I32(3, (int32_t)util_div_round_nearest_i64(INT64_C(5), INT64_C(2)));
-    TEST_ASSERT_EQ_I32(-3, (int32_t)util_div_round_nearest_i64(-INT64_C(5), INT64_C(2)));
-    TEST_ASSERT_EQ_I32(4, (int32_t)util_div_round_nearest_i64(INT64_C(7), INT64_C(2)));
-    TEST_ASSERT_EQ_I32(-4, (int32_t)util_div_round_nearest_i64(-INT64_C(7), INT64_C(2)));
+    int64_t result = 0;
+
+    TEST_ASSERT_EQ_I32(SNS_OK, util_div_round_nearest_i64(INT64_C(5), INT64_C(2), &result));
+    TEST_ASSERT_EQ_I32(3, (int32_t)result);
+    TEST_ASSERT_EQ_I32(SNS_OK, util_div_round_nearest_i64(-INT64_C(5), INT64_C(2), &result));
+    TEST_ASSERT_EQ_I32(-3, (int32_t)result);
+    TEST_ASSERT_EQ_I32(SNS_OK, util_div_round_nearest_i64(INT64_C(7), INT64_C(2), &result));
+    TEST_ASSERT_EQ_I32(4, (int32_t)result);
+    TEST_ASSERT_EQ_I32(SNS_OK, util_div_round_nearest_i64(-INT64_C(7), INT64_C(2), &result));
+    TEST_ASSERT_EQ_I32(-4, (int32_t)result);
+}
+
+TEST(rounded_division_rejects_invalid_arguments_without_changing_output)
+{
+    int64_t result = INT64_C(123456);
+
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_div_round_nearest_i64(INT64_C(5), 0, &result));
+    TEST_ASSERT_EQ_I32(123456, (int32_t)result);
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_div_round_nearest_i64(INT64_C(5), INT64_C(2), NULL));
 }
 
 TEST(saturation_clamps_both_int32_boundaries)
@@ -75,6 +109,10 @@ TEST(ringbuf_drop_newest_preserves_existing_items_and_counts_drop)
     TEST_ASSERT_EQ_U16(20U, item);
     TEST_ASSERT_EQ_I32(SNS_OK, util_ringbuf_pop(&ringbuf, &item));
     TEST_ASSERT_EQ_U16(30U, item);
+    TEST_ASSERT_EQ_U16(1U, util_ringbuf_count(&independent_ringbuf));
+    TEST_ASSERT_EQ_I32(SNS_OK, util_ringbuf_pop(&independent_ringbuf, &item));
+    TEST_ASSERT_EQ_U16(77U, item);
+    TEST_ASSERT_EQ_U16(0U, util_ringbuf_count(&independent_ringbuf));
 }
 
 TEST(ringbuf_drop_oldest_replaces_oldest_item_and_counts_drop)
@@ -104,39 +142,72 @@ TEST(ringbuf_drop_oldest_replaces_oldest_item_and_counts_drop)
     TEST_ASSERT_EQ_U16(40U, item);
 }
 
-static util_log_level_t captured_level;
-static const char *captured_tag;
-static const char *captured_message;
+typedef struct {
+    util_log_level_t level;
+    const char *tag;
+    const char *message;
+    void *context;
+} captured_log_t;
 
-static void capture_log(util_log_level_t level, const char *tag, const char *message)
+static void capture_log(void *context, util_log_level_t level, const char *tag, const char *message)
 {
-    captured_level = level;
-    captured_tag = tag;
-    captured_message = message;
+    captured_log_t *capture = context;
+
+    capture->level = level;
+    capture->tag = tag;
+    capture->message = message;
+    capture->context = context;
 }
 
 TEST(log_sink_receives_level_tag_and_formatted_message)
 {
-    captured_tag = NULL;
-    captured_message = NULL;
-    util_log_init(capture_log);
+    char line_buffer[32] = { '\0' };
+    captured_log_t capture = { UTIL_LOG_LEVEL_DEBUG, NULL, NULL, NULL };
+    util_log_t log;
 
-    util_log_write(UTIL_LOG_LEVEL_WARN, "i2c", "read %u bytes", 7U);
+    TEST_ASSERT_EQ_I32(SNS_OK, util_log_init(&log, capture_log, &capture, line_buffer,
+                                              (uint16_t)sizeof(line_buffer)));
 
-    TEST_ASSERT_EQ_I32(UTIL_LOG_LEVEL_WARN, captured_level);
-    TEST_ASSERT_STREQ("i2c", captured_tag);
-    TEST_ASSERT_STREQ("read 7 bytes", captured_message);
+    TEST_ASSERT_EQ_I32(SNS_OK, util_log_write(&log, UTIL_LOG_LEVEL_WARN, "i2c", "read %u bytes", 7U));
+
+    TEST_ASSERT_EQ_I32(UTIL_LOG_LEVEL_WARN, capture.level);
+    TEST_ASSERT_TRUE(capture.context == &capture);
+    TEST_ASSERT_STREQ("i2c", capture.tag);
+    TEST_ASSERT_STREQ("read 7 bytes", capture.message);
+    TEST_ASSERT_STREQ("read 7 bytes", line_buffer);
+}
+
+TEST(log_rejects_empty_context_buffer_and_capacity)
+{
+    char line_buffer[16] = { '\0' };
+    captured_log_t capture = { UTIL_LOG_LEVEL_DEBUG, NULL, NULL, NULL };
+    util_log_t log;
+
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_log_init(NULL, capture_log, &capture, line_buffer,
+                                                     (uint16_t)sizeof(line_buffer)));
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_log_init(&log, NULL, &capture, line_buffer,
+                                                     (uint16_t)sizeof(line_buffer)));
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_log_init(&log, capture_log, &capture, NULL,
+                                                     (uint16_t)sizeof(line_buffer)));
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_log_init(&log, capture_log, &capture, line_buffer, 0U));
+    TEST_ASSERT_EQ_I32(SNS_OK, util_log_init(&log, capture_log, &capture, line_buffer,
+                                              (uint16_t)sizeof(line_buffer)));
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_log_write(NULL, UTIL_LOG_LEVEL_INFO, "tool", "ready"));
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM, util_log_write(&log, UTIL_LOG_LEVEL_INFO, "tool", NULL));
 }
 
 int main(void)
 {
     status_name_maps_known_and_unknown_codes();
     be16_round_trip_uses_network_order();
+    be16_rejects_null_and_short_buffers_without_changing_output();
     rounded_division_rounds_positive_and_negative_halves_away_from_zero();
+    rounded_division_rejects_invalid_arguments_without_changing_output();
     saturation_clamps_both_int32_boundaries();
     ringbuf_drop_newest_preserves_existing_items_and_counts_drop();
     ringbuf_drop_oldest_replaces_oldest_item_and_counts_drop();
     log_sink_receives_level_tag_and_formatted_message();
+    log_rejects_empty_context_buffer_and_capacity();
 
     if (test_failures != 0) {
         (void)fprintf(stderr, "%d test assertion(s) failed\n", test_failures);
