@@ -234,7 +234,7 @@ GUI、MQTT 和业务模块之间禁止互相包含头文件或直接调用。
 |---|---|
 | CMake 和工具链文件 | 只负责选择 Port、模块和配置 |
 | tests | 可以使用 mock，但生产代码不得反向依赖 tests |
-| examples/host_demo/main.c | 按功能层依赖规则检查 |
+| examples/host_demo/main.c | 作为唯一 composition root，可装配四层公开 API；禁止厂商 `plat_`、具体 `port_` 和模板符号，且不得承载可复用业务逻辑 |
 | tools/check_layers.py | 构建工具，不参与目标固件 |
 | doc | 设计文档，不参与编译 |
 
@@ -588,6 +588,8 @@ func_app_biz 独立实现：
 
 - 带迟滞的高低温报警；
 - 固定窗口 min、max、avg；
+- 一个业务应用消费一个共享 `biz_queue`，在调用方提供的静态状态表中按 Sensor ID 隔离窗口和报警状态；
+- 未配置 Sensor ID 的事件可被明确忽略，不得污染已配置 Sensor 的统计；
 - 可选趋势斜率；
 - 对 STALE 和 ERROR 数据采用单独策略；
 - 业务结果通过其自身输出接口上报，不回调 GUI 或 MQTT 模块。

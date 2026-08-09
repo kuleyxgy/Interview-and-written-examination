@@ -2,7 +2,7 @@
 
 一个使用纯 C99 编写、面向裸机和 MCU 项目的静态内存 Sensor 框架。首个器件案例为 TMP75 兼容 12 位温度传感器，数据可以经过可组合滤波链，并分别送往 GUI、MQTT 和业务计算模块。
 
-> 当前分支状态：v0.1 Alpha 初始实现。首轮代码先推送到 feature/sensor-framework-v0.1，完整测试、问题复现和稳定化修复将在后续提交中完成。请勿把当前 Alpha 直接用于生产设备。
+> 当前状态：v0.1.0 首个稳定化版本。Host 模拟、严格编译、分层检查和端到端演示均已通过；真实 MCU Port、硬件在环和 TLS 不在本版本验收范围内。
 
 ## 设计目标
 
@@ -13,6 +13,7 @@
 - 滤波器直接引用 ops，可组合且不需要修改核心 switch。
 - GUI、MQTT 和业务计算拥有独立有界事件队列。
 - Sensor 核心采用单所有者协作式执行模型。
+- Sensor 核心是显式 `func_sensor_core_t` 实例，不使用隐式全局注册表。
 - 通过脚本和构建目标检查四层依赖。
 
 ## 四层架构
@@ -25,6 +26,8 @@
 | 工具层 | src/tool | 工具层 |
 
 功能层不得直接包含 hal_、port_ 或平台 SDK 头文件。协议层负责把原始 HAL 能力解释成时钟、寄存器设备、温度器件、显示或 MQTT 等标准服务。
+
+`examples/host_demo/main.c` 是唯一的 composition root，用来实例化并连接各层对象；它不属于任何运行时模块，也不会放宽 `src/func` 的依赖规则。
 
 ## 目录
 
@@ -58,20 +61,39 @@ doc/                     设计、变更建议和移植信息
 ~~~powershell
 $cmake = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
 
-& $cmake -S . -B build -G 'Visual Studio 18 2026' -A x64
+& $cmake -S . -B build -G 'Visual Studio 18 2026' -A x64 -DSENSOR_PORT=host
 & $cmake --build build --config Debug
+~~~
+
+主要构建 target 与层级一一对应：
+
+| Target | 所属内容 |
+|---|---|
+| `sensor_tool` | 工具层 |
+| `sensor_iface` | 标准 HAL 接口 |
+| `sensor_port_host` | Host 接口层 Port |
+| `sensor_proto` | 协议层 |
+| `sensor_func` | 功能层 |
+| `sensor_framework` | 由装配方选择 Port 的聚合接口 target |
+
+MCU 工程可使用 `-DSENSOR_PORT=none -DBUILD_TESTING=OFF -DSENSOR_BUILD_EXAMPLES=OFF`，只构建可移植的 tool/proto/func 库，再链接自己的接口层 Port。模板可单独编译检查：
+
+~~~powershell
+& $cmake --build build --config Debug --target check_port_template
 ~~~
 
 ## 测试
 
-Alpha 首次推送后的稳定化阶段将执行完整测试。已有测试可使用：
+配置时默认启用测试。当前共有 40 个 C 测试函数，并注册 12 个 CTest 目标：tool、iface、proto、filters、sensor、apps、mqtt、e2e、integration、host_demo_e2e、layers 和 layers_negative。
 
 ~~~powershell
 $ctest = 'C:\Program Files (x86)\Microsoft Visual Studio\18\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe'
 
 & $ctest --test-dir build -C Debug --output-on-failure
-python tools/check_layers.py
+& $cmake --build build --config Debug --target check_layers
 ~~~
+
+已验证环境的结果为 12/12 通过，MSVC `/W4 /WX` 为 0 警告、0 错误。
 
 ## 演示
 
@@ -81,15 +103,42 @@ python tools/check_layers.py
 .\build\Debug\host_demo.exe
 ~~~
 
-host_demo 的目标行为是：
+host_demo 已实现：
 
 1. 在两条独立 host I2C 总线上创建相同地址的 TMP75；
 2. 为两个 Sensor 配置不同滤波链；
 3. 将事件复制到 GUI、MQTT 和业务队列；
-4. 输出温度、质量、报警/统计、MQTT 报文和丢弃计数；
-5. 以确定性的有限循环结束。
+4. 注入 I2C IO/TIMEOUT，使质量经历 VALID → STALE → ERROR → VALID；
+5. 完成 MQTT CONNECT/CONNACK/QoS 0 PUBLISH，输出报文十六进制；
+6. 注入 MQTT 断线、离线排队、重连和队列溢出；
+7. 输出 GUI、业务窗口/迟滞报警和 dropped 统计后确定性退出。
 
-Alpha 首次推送不承诺所有演示路径已经完成稳定化；实际通过情况以后续 QA 提交和 CHANGELOG 为准。
+成功运行的摘要行类似：`[SUMMARY] GUI_records=11 MQTT_pending=0 MQTT_dropped=1`。
+
+## 最小装配顺序
+
+以下代码展示核心 API 的连接方式；对象、队列存储和滤波状态均由调用方静态持有：
+
+~~~c
+func_sensor_core_t core;
+func_temp_t temperature;
+func_sensor_registration_t registration = {
+    1U, "board-temp", &func_temp_driver_ops, &temperature
+};
+
+func_sensor_core_init(&core);
+func_temp_configure(&temperature, &temperature_cfg);
+func_event_queue_init(&gui_queue, gui_storage, GUI_CAPACITY,
+                      FUNC_QUEUE_DROP_NEWEST);
+func_sensor_register(&core, &registration);
+func_sensor_subscribe(&core, 1U, &gui_queue);
+
+/* 在唯一 owner 的主循环或 Sensor 任务中调用。 */
+func_sensor_poll_all(&core, now_ms);
+func_app_gui_poll(&gui_app, now_ms);
+~~~
+
+完整可运行装配见 `examples/host_demo/main.c`。
 
 ## 核心约定
 
@@ -152,12 +201,12 @@ TLS 后续应通过安全的 hal_net Port 接入，而不是耦合进 MQTT 报�
 
 ## 状态与限制
 
-- 当前为首次 Alpha 代码交付；
-- 深度边界测试、错误注入、全量端到端验证和代码复核将在首次远程推送后进行；
+- 当前 Host 参考实现已经过单元、集成、错误注入、端到端测试和独立代码复核；
 - STM32F4 目录是 SDK 对接边界说明，不代表已经完成硬件在环验证；
-- API 在 v0.1 稳定化前可能根据测试结果做兼容性调整。
+- MQTT 首版只处理本客户端所需的 CONNACK 和 PINGRESP 入站控制包，不提供订阅；
+- `budget_ms` 通过每次 poll 最多一个非阻塞 HAL 工作单元，并将 connect timeout 限制到预算内；具体 Port 必须遵守非阻塞 send/recv 契约；
+- 本版本不是功能安全认证组件，投产前仍需目标 MCU、编译器、网络栈和硬件在环验证。
 
 详细设计见 doc/sensor_framework_design_20260809_182444.md。
 
 下一版本建议见 doc/NEXT_VERSION_RECOMMENDATIONS.md。
-

@@ -20,12 +20,14 @@ ALLOWED = {
     "iface": {"tool", "iface"},
     "proto": {"tool", "iface", "proto"},
     "func": {"tool", "proto", "func"},
+    "composition": {"tool", "iface", "proto", "func"},
 }
 SYMBOL_RULES = {
     "tool": ("hal_", "host_", "port_", "plat_", "proto_", "func_"),
     "iface": ("proto_", "func_"),
     "proto": ("func_",),
     "func": ("hal_", "host_", "port_", "plat_"),
+    "composition": ("port_", "plat_", "template_"),
 }
 INCLUDE_RE = re.compile(r'^\s*#\s*include\s*[<"]([^>"]+)[>"]')
 TOKEN_RE = re.compile(r"\b(?:util|hal|host|port|plat|proto|func)_[A-Za-z0-9_]*")
@@ -42,7 +44,7 @@ def classify(path: Path, root: Path) -> str | None:
     if relative.startswith("src/func/"):
         return "func"
     if relative == "examples/host_demo/main.c":
-        return "func"
+        return "composition"
     return None
 
 
