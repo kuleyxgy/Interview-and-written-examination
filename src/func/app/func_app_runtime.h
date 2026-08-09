@@ -6,9 +6,11 @@
 #include "func_app_biz.h"
 #include "func_app_gui.h"
 #include "func_app_mqtt.h"
+#include "func_sensor.h"
 #include "proto_clock.h"
 
 typedef struct {
+    func_sensor_core_t *sensor_core;
     proto_clock_t *clock;
     func_app_gui_t *gui;
     func_app_biz_t *biz;
@@ -18,6 +20,7 @@ typedef struct {
 } func_app_runtime_t;
 
 sns_status_t func_app_runtime_init(func_app_runtime_t *runtime,
+                                   func_sensor_core_t *sensor_core,
                                    proto_clock_t *clock,
                                    func_app_gui_t *gui,
                                    func_app_biz_t *biz,

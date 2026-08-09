@@ -2,8 +2,6 @@
 
 #include <stddef.h>
 
-#include "func_sensor.h"
-
 static void func_app_runtime_capture(sns_status_t status,
                                      sns_status_t *first_error)
 {
@@ -14,6 +12,7 @@ static void func_app_runtime_capture(sns_status_t status,
 }
 
 sns_status_t func_app_runtime_init(func_app_runtime_t *runtime,
+                                   func_sensor_core_t *sensor_core,
                                    proto_clock_t *clock,
                                    func_app_gui_t *gui,
                                    func_app_biz_t *biz,
@@ -21,11 +20,13 @@ sns_status_t func_app_runtime_init(func_app_runtime_t *runtime,
                                    proto_mqtt_client_t *mqtt_client,
                                    uint32_t mqtt_poll_budget_ms)
 {
-    if ((runtime == NULL) || (clock == NULL) || (gui == NULL) ||
-        (biz == NULL) || (mqtt_app == NULL) || (mqtt_client == NULL) ||
-        (mqtt_poll_budget_ms == 0U)) {
+    if ((runtime == NULL) || (sensor_core == NULL) ||
+        (sensor_core->initialized == 0U) || (clock == NULL) ||
+        ((mqtt_app == NULL) != (mqtt_client == NULL)) ||
+        ((mqtt_client != NULL) && (mqtt_poll_budget_ms == 0U))) {
         return SNS_ERR_PARAM;
     }
+    runtime->sensor_core = sensor_core;
     runtime->clock = clock;
     runtime->gui = gui;
     runtime->biz = biz;
@@ -42,7 +43,8 @@ sns_status_t func_app_runtime_poll_once(func_app_runtime_t *runtime,
     sns_status_t status;
     sns_status_t first_error = SNS_OK;
 
-    if ((runtime == NULL) || (now_ms == NULL)) {
+    if ((runtime == NULL) || (runtime->sensor_core == NULL) ||
+        (runtime->clock == NULL) || (now_ms == NULL)) {
         return SNS_ERR_PARAM;
     }
     status = proto_clock_now_ms(runtime->clock, &current);
@@ -50,12 +52,22 @@ sns_status_t func_app_runtime_poll_once(func_app_runtime_t *runtime,
         return status;
     }
     *now_ms = current;
-    func_app_runtime_capture(func_sensor_poll_all(current), &first_error);
-    func_app_runtime_capture(func_app_gui_poll(runtime->gui, current), &first_error);
-    func_app_runtime_capture(func_app_biz_poll(runtime->biz, current), &first_error);
-    func_app_runtime_capture(func_app_mqtt_poll(runtime->mqtt_app, current), &first_error);
-    func_app_runtime_capture(proto_mqtt_poll(runtime->mqtt_client, current,
-                                              runtime->mqtt_poll_budget_ms),
+    func_app_runtime_capture(func_sensor_poll_all(runtime->sensor_core, current),
                              &first_error);
+    if (runtime->gui != NULL) {
+        func_app_runtime_capture(func_app_gui_poll(runtime->gui, current),
+                                 &first_error);
+    }
+    if (runtime->biz != NULL) {
+        func_app_runtime_capture(func_app_biz_poll(runtime->biz, current),
+                                 &first_error);
+    }
+    if (runtime->mqtt_app != NULL) {
+        func_app_runtime_capture(func_app_mqtt_poll(runtime->mqtt_app, current),
+                                 &first_error);
+        func_app_runtime_capture(proto_mqtt_poll(runtime->mqtt_client, current,
+                                                  runtime->mqtt_poll_budget_ms),
+                                 &first_error);
+    }
     return first_error;
 }

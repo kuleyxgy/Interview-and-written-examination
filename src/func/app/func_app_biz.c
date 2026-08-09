@@ -47,6 +47,7 @@ static void func_app_biz_refresh(func_app_biz_t *app,
 
 sns_status_t func_app_biz_init(func_app_biz_t *app,
                                func_event_queue_t *queue,
+                               func_sensor_id_t sensor_id,
                                int32_t *window_storage,
                                uint16_t window_capacity,
                                int32_t high_alarm_on,
@@ -62,6 +63,7 @@ sns_status_t func_app_biz_init(func_app_biz_t *app,
     }
     (void)memset(app, 0, sizeof(*app));
     app->queue = queue;
+    app->sensor_id = sensor_id;
     app->window = window_storage;
     app->window_capacity = window_capacity;
     app->high_alarm_on = high_alarm_on;
@@ -87,6 +89,9 @@ sns_status_t func_app_biz_poll(func_app_biz_t *app, uint32_t now_ms)
         }
         if (status != SNS_OK) {
             return status;
+        }
+        if (event.sensor_id != app->sensor_id) {
+            continue;
         }
         if (event.quality != FUNC_QUALITY_VALID) {
             app->latest.sensor_id = event.sensor_id;

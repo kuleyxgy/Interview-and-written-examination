@@ -18,6 +18,7 @@ typedef struct {
 
 typedef struct {
     func_event_queue_t *queue;
+    func_sensor_id_t sensor_id;
     int32_t *window;
     uint16_t window_capacity;
     uint16_t window_count;
@@ -32,6 +33,7 @@ typedef struct {
 
 sns_status_t func_app_biz_init(func_app_biz_t *app,
                                func_event_queue_t *queue,
+                               func_sensor_id_t sensor_id,
                                int32_t *window_storage,
                                uint16_t window_capacity,
                                int32_t high_alarm_on,

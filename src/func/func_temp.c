@@ -138,10 +138,13 @@ static sns_status_t temp_calibrate(const func_temp_t *temp,
         return status;
     }
     rounded += (int64_t)temp->cfg.calibration_offset_mdeg_c;
-    if ((rounded < INT32_MIN) || (rounded > INT32_MAX)) {
-        return SNS_ERR_INVALID_DATA;
+    if (rounded < INT32_MIN) {
+        *calibrated = INT32_MIN;
+    } else if (rounded > INT32_MAX) {
+        *calibrated = INT32_MAX;
+    } else {
+        *calibrated = (int32_t)rounded;
     }
-    *calibrated = (int32_t)rounded;
     return SNS_OK;
 }
 
