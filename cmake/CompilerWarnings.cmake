@@ -1,0 +1,7 @@
+function(sensor_framework_enable_warnings target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 /WX)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Werror -Wpedantic)
+    endif()
+endfunction()
