@@ -17,30 +17,40 @@ typedef struct {
 } func_biz_result_t;
 
 typedef struct {
-    func_event_queue_t *queue;
     func_sensor_id_t sensor_id;
     int32_t *window;
     uint16_t window_capacity;
     uint16_t window_count;
     uint16_t window_next;
-    uint16_t max_events_per_poll;
     int64_t sum;
     int32_t high_alarm_on;
     int32_t high_alarm_off;
     func_biz_result_t latest;
     uint8_t has_latest;
+    uint8_t initialized;
+} func_biz_sensor_state_t;
+
+typedef struct {
+    func_event_queue_t *queue;
+    func_biz_sensor_state_t *states;
+    uint16_t state_count;
+    uint16_t max_events_per_poll;
 } func_app_biz_t;
 
+sns_status_t func_biz_sensor_state_init(func_biz_sensor_state_t *state,
+                                        func_sensor_id_t sensor_id,
+                                        int32_t *window_storage,
+                                        uint16_t window_capacity,
+                                        int32_t high_alarm_on,
+                                        int32_t high_alarm_off);
 sns_status_t func_app_biz_init(func_app_biz_t *app,
                                func_event_queue_t *queue,
-                               func_sensor_id_t sensor_id,
-                               int32_t *window_storage,
-                               uint16_t window_capacity,
-                               int32_t high_alarm_on,
-                               int32_t high_alarm_off,
+                               func_biz_sensor_state_t *states,
+                               uint16_t state_count,
                                uint16_t max_events_per_poll);
 sns_status_t func_app_biz_poll(func_app_biz_t *app, uint32_t now_ms);
 sns_status_t func_app_biz_get_latest(const func_app_biz_t *app,
+                                     func_sensor_id_t sensor_id,
                                      func_biz_result_t *result);
 
 #endif

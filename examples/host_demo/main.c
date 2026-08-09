@@ -106,10 +106,12 @@ static sns_status_t demo_require(sns_status_t status, const char *operation)
     return status;
 }
 
-static void demo_print_biz(const char *name, const func_app_biz_t *app)
+static void demo_print_biz(const char *name,
+                           const func_app_biz_t *app,
+                           func_sensor_id_t sensor_id)
 {
     func_biz_result_t result;
-    sns_status_t status = func_app_biz_get_latest(app, &result);
+    sns_status_t status = func_app_biz_get_latest(app, sensor_id, &result);
 
     if (status != SNS_OK) {
         (void)printf("[BIZ:%s] no result: %s\n", name,
@@ -129,8 +131,7 @@ static void demo_print_biz(const char *name, const func_app_biz_t *app)
 }
 
 static sns_status_t demo_poll_consumers(func_app_gui_t *gui,
-                                        func_app_biz_t *biz_a,
-                                        func_app_biz_t *biz_b,
+                                        func_app_biz_t *biz,
                                         uint32_t now_ms)
 {
     sns_status_t status;
@@ -139,11 +140,7 @@ static sns_status_t demo_poll_consumers(func_app_gui_t *gui,
     if (status != SNS_OK) {
         return status;
     }
-    status = func_app_biz_poll(biz_a, now_ms);
-    if (status != SNS_OK) {
-        return status;
-    }
-    status = func_app_biz_poll(biz_b, now_ms);
+    status = func_app_biz_poll(biz, now_ms);
     if (status != SNS_OK) {
         return status;
     }
@@ -313,19 +310,17 @@ int main(void)
     func_sensor_core_t core;
     func_sensor_event_t gui_storage[5];
     func_sensor_event_t mqtt_storage[5];
-    func_sensor_event_t biz_a_storage[3];
-    func_sensor_event_t biz_b_storage[2];
+    func_sensor_event_t biz_storage[6];
     func_event_queue_t gui_queue;
     func_event_queue_t mqtt_queue;
-    func_event_queue_t biz_a_queue;
-    func_event_queue_t biz_b_queue;
+    func_event_queue_t biz_queue;
     uint32_t display_count = 0U;
     proto_display_t display = { &demo_display_ops, &display_count };
     func_app_gui_t gui;
     int32_t biz_a_window[3];
     int32_t biz_b_window[3];
-    func_app_biz_t biz_a;
-    func_app_biz_t biz_b;
+    func_biz_sensor_state_t biz_states[2];
+    func_app_biz_t biz;
     host_net_t network;
     hal_net_t network_hal;
     proto_mqtt_packet_slot_t mqtt_slots[2];
@@ -392,12 +387,9 @@ int main(void)
         (demo_require(func_event_queue_init(&mqtt_queue, mqtt_storage, 5U,
                                              FUNC_QUEUE_DROP_NEWEST),
                       "MQTT event queue") != SNS_OK) ||
-        (demo_require(func_event_queue_init(&biz_a_queue, biz_a_storage, 3U,
+        (demo_require(func_event_queue_init(&biz_queue, biz_storage, 6U,
                                              FUNC_QUEUE_DROP_OLDEST),
-                      "business A queue") != SNS_OK) ||
-        (demo_require(func_event_queue_init(&biz_b_queue, biz_b_storage, 2U,
-                                             FUNC_QUEUE_DROP_OLDEST),
-                      "business B queue") != SNS_OK) ||
+                      "business queue") != SNS_OK) ||
         (demo_require(func_sensor_register(&core, &registration_a),
                       "register A") != SNS_OK) ||
         (demo_require(func_sensor_register(&core, &registration_b),
@@ -413,18 +405,24 @@ int main(void)
                       "A to MQTT") != SNS_OK) ||
         (demo_require(func_sensor_subscribe(&core, DEMO_SENSOR_B_ID, &mqtt_queue),
                       "B to MQTT") != SNS_OK) ||
-        (demo_require(func_sensor_subscribe(&core, DEMO_SENSOR_A_ID, &biz_a_queue),
+        (demo_require(func_sensor_subscribe(&core, DEMO_SENSOR_A_ID, &biz_queue),
                       "A to business") != SNS_OK) ||
-        (demo_require(func_sensor_subscribe(&core, DEMO_SENSOR_B_ID, &biz_b_queue),
+        (demo_require(func_sensor_subscribe(&core, DEMO_SENSOR_B_ID, &biz_queue),
                       "B to business") != SNS_OK) ||
         (demo_require(func_app_gui_init(&gui, &gui_queue, &display, 8U),
                       "GUI app") != SNS_OK) ||
-        (demo_require(func_app_biz_init(&biz_a, &biz_a_queue, DEMO_SENSOR_A_ID,
-                                         biz_a_window, 3U, 29000, 28000, 8U),
-                      "business A") != SNS_OK) ||
-        (demo_require(func_app_biz_init(&biz_b, &biz_b_queue, DEMO_SENSOR_B_ID,
-                                         biz_b_window, 3U, 0, -1000, 8U),
-                      "business B") != SNS_OK)) {
+        (demo_require(func_biz_sensor_state_init(&biz_states[0],
+                                                  DEMO_SENSOR_A_ID,
+                                                  biz_a_window, 3U,
+                                                  29000, 28000),
+                      "business state A") != SNS_OK) ||
+        (demo_require(func_biz_sensor_state_init(&biz_states[1],
+                                                  DEMO_SENSOR_B_ID,
+                                                  biz_b_window, 3U,
+                                                  0, -1000),
+                      "business state B") != SNS_OK) ||
+        (demo_require(func_app_biz_init(&biz, &biz_queue, biz_states, 2U, 8U),
+                      "business app") != SNS_OK)) {
         (void)func_sensor_reset(&core);
         return 1;
     }
@@ -474,21 +472,21 @@ int main(void)
     (void)printf("[FANOUT] before drain GUI_dropped=%lu MQTT_event_dropped=%lu\n",
                  (unsigned long)gui_dropped,
                  (unsigned long)mqtt_event_dropped);
-    if ((demo_poll_consumers(&gui, &biz_a, &biz_b, 200U) != SNS_OK) ||
+    if ((demo_poll_consumers(&gui, &biz, 200U) != SNS_OK) ||
         (demo_mqtt_drain_app(&mqtt_app, &mqtt_client, &network,
                              &printed_captures, 200U) != SNS_OK)) {
         (void)func_sensor_reset(&core);
         return 1;
     }
-    demo_print_biz("A", &biz_a);
-    demo_print_biz("B", &biz_b);
+    demo_print_biz("A", &biz, DEMO_SENSOR_A_ID);
+    demo_print_biz("B", &biz, DEMO_SENSOR_B_ID);
 
     for (step = 3U; step < 6U; step++) {
         now_ms = (uint32_t)step * DEMO_STEP_MS;
         status = func_sensor_poll_all(&core, now_ms);
         (void)printf("[CORE] recovery time=%lu status=%s\n",
                      (unsigned long)now_ms, sns_status_name(status));
-        if (demo_poll_consumers(&gui, &biz_a, &biz_b, now_ms) != SNS_OK) {
+        if (demo_poll_consumers(&gui, &biz, now_ms) != SNS_OK) {
             (void)func_sensor_reset(&core);
             return 1;
         }
@@ -527,8 +525,8 @@ int main(void)
             (void)func_sensor_reset(&core);
             return 1;
         }
-        demo_print_biz("A", &biz_a);
-        demo_print_biz("B", &biz_b);
+        demo_print_biz("A", &biz, DEMO_SENSOR_A_ID);
+        demo_print_biz("B", &biz, DEMO_SENSOR_B_ID);
     }
     (void)printf("[SUMMARY] GUI_records=%lu MQTT_pending=%u MQTT_dropped=%lu\n",
                  (unsigned long)display_count,
