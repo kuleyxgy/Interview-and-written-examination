@@ -91,14 +91,16 @@ TEST(biz_tracks_literal_window_alarm_hysteresis_and_stale_quality)
     func_sensor_event_t storage[5];
     func_event_queue_t queue;
     int32_t window[3] = { 0, 0, 0 };
+    func_biz_sensor_state_t state;
     func_app_biz_t biz;
     func_biz_result_t result;
     func_sensor_event_t event;
 
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_init(&queue, storage, 5U,
                                                       FUNC_QUEUE_DROP_NEWEST));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_init(&biz, &queue, 7U, window, 3U,
-                                                  30000, 28000, 5U));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_biz_sensor_state_init(&state, 7U, window, 3U,
+                                                           30000, 28000));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_init(&biz, &queue, &state, 1U, 5U));
 
     event = make_temp_event(8U, 100000, FUNC_QUALITY_VALID, 5U);
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_push(&queue, &event));
@@ -110,7 +112,7 @@ TEST(biz_tracks_literal_window_alarm_hysteresis_and_stale_quality)
     event = make_temp_event(7U, 30000, FUNC_QUALITY_VALID, 30U);
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_push(&queue, &event));
     TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_poll(&biz, 30U));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_get_latest(&biz, &result));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_get_latest(&biz, 7U, &result));
     TEST_ASSERT_EQ_U16(7U, result.sensor_id);
     TEST_ASSERT_EQ_I32(29000, result.minimum);
     TEST_ASSERT_EQ_I32(31000, result.maximum);
@@ -122,7 +124,7 @@ TEST(biz_tracks_literal_window_alarm_hysteresis_and_stale_quality)
     event = make_temp_event(7U, 27000, FUNC_QUALITY_VALID, 40U);
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_push(&queue, &event));
     TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_poll(&biz, 40U));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_get_latest(&biz, &result));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_get_latest(&biz, 7U, &result));
     TEST_ASSERT_EQ_I32(27000, result.minimum);
     TEST_ASSERT_EQ_I32(31000, result.maximum);
     TEST_ASSERT_EQ_I32(29333, result.average);
@@ -131,7 +133,7 @@ TEST(biz_tracks_literal_window_alarm_hysteresis_and_stale_quality)
     event = make_temp_event(7U, 99999, FUNC_QUALITY_STALE, 50U);
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_push(&queue, &event));
     TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_poll(&biz, 50U));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_get_latest(&biz, &result));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_get_latest(&biz, 7U, &result));
     TEST_ASSERT_EQ_I32(27000, result.minimum);
     TEST_ASSERT_EQ_I32(31000, result.maximum);
     TEST_ASSERT_EQ_I32(29333, result.average);

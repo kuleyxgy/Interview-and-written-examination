@@ -339,6 +339,52 @@ TEST(one_millisecond_budget_allows_at_most_one_hal_work_unit)
     TEST_ASSERT_TRUE(script.work_calls <= 1U);
 }
 
+TEST(connack_timeout_starts_after_partial_connect_packet_finishes)
+{
+    scripted_net_t script;
+    hal_net_t net = { &scripted_ops, &script };
+    proto_mqtt_packet_slot_t slot;
+    uint8_t work[64];
+    proto_mqtt_client_t client;
+
+    (void)memset(&script, 0, sizeof(script));
+    script.send_limit = 4U;
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_init(&client, &net, &slot, 1U,
+                                                work, (uint16_t)sizeof(work)));
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_connect(&client, "broker", 1883U, "qa",
+                                                   10U, 5U, 100U));
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_poll(&client, 101U, 2U));
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_poll(&client, 103U, 2U));
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_poll(&client, 105U, 2U));
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_poll(&client, 107U, 2U));
+    TEST_ASSERT_TRUE(!proto_mqtt_is_connected(&client));
+
+    script_connack(&script);
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_poll(&client, 111U, 2U));
+    TEST_ASSERT_TRUE(proto_mqtt_is_connected(&client));
+}
+
+TEST(clean_session_rejects_connack_with_session_present)
+{
+    static const uint8_t invalid_connack[] = {
+        UINT8_C(0x20), UINT8_C(0x02), UINT8_C(0x01), UINT8_C(0x00)
+    };
+    host_net_t host;
+    hal_net_t net;
+    proto_mqtt_packet_slot_t slot;
+    uint8_t work[64];
+    proto_mqtt_client_t client;
+
+    init_host_client(&client, &host, &net, &slot, 1U, work, (uint16_t)sizeof(work));
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_connect(&client, "broker", 1883U, "qa",
+                                                   10U, 50U, 0U));
+    TEST_ASSERT_EQ_I32(SNS_OK, proto_mqtt_poll(&client, 0U, 2U));
+    TEST_ASSERT_EQ_I32(SNS_OK, host_net_receive_push(&host, invalid_connack,
+                                                      (uint16_t)sizeof(invalid_connack)));
+    TEST_ASSERT_EQ_I32(SNS_ERR_INVALID_DATA, proto_mqtt_poll(&client, 1U, 2U));
+    TEST_ASSERT_TRUE(!proto_mqtt_is_connected(&client));
+}
+
 int main(void)
 {
     connect_and_publish_wait_for_accepted_connack_with_golden_packets();
@@ -347,6 +393,8 @@ int main(void)
     invalid_reconfigure_is_atomic_and_queue_full_counts_drop();
     partial_publish_restarts_from_fixed_header_after_reconnect();
     one_millisecond_budget_allows_at_most_one_hal_work_unit();
+    connack_timeout_starts_after_partial_connect_packet_finishes();
+    clean_session_rejects_connack_with_session_present();
 
     if (test_failures != 0) {
         (void)fprintf(stderr, "%d test assertion(s) failed\n", test_failures);
