@@ -56,6 +56,21 @@ static sns_status_t proto_mqtt_copy_text(char *destination,
     return SNS_OK;
 }
 
+static sns_status_t proto_mqtt_validate_text(const char *text,
+                                              uint16_t capacity)
+{
+    size_t length;
+
+    if ((text == NULL) || (capacity == 0U)) {
+        return SNS_ERR_PARAM;
+    }
+    length = strlen(text);
+    if ((length == 0U) || (length >= capacity) || (length > UINT16_MAX)) {
+        return SNS_ERR_NO_SPACE;
+    }
+    return SNS_OK;
+}
+
 static sns_status_t proto_mqtt_encode_connect(proto_mqtt_client_t *client)
 {
     size_t client_id_length = strlen(client->client_id);
@@ -123,19 +138,25 @@ static void proto_mqtt_mark_disconnected(proto_mqtt_client_t *client,
         (void)client->net->ops->close(client->net->ctx);
     }
     client->connected = 0U;
+    client->state = PROTO_MQTT_STATE_DISCONNECTED;
     client->awaiting_ping_response = 0U;
     client->control_length = 0U;
     client->control_sent = 0U;
+    client->receive_length = 0U;
+    if (client->queue_count > 0U) {
+        client->slots[client->queue_head].sent = 0U;
+    }
     proto_mqtt_schedule_reconnect(client, now_ms);
 }
 
 static sns_status_t proto_mqtt_attempt_connect(proto_mqtt_client_t *client,
-                                                uint32_t now_ms)
+                                                uint32_t now_ms,
+                                                uint32_t timeout_ms)
 {
     sns_status_t status;
 
     status = client->net->ops->connect(client->net->ctx, client->host,
-                                        client->port, client->connect_timeout_ms);
+                                        client->port, timeout_ms);
     if (status != SNS_OK) {
         client->connected = 0U;
         proto_mqtt_schedule_reconnect(client, now_ms);
@@ -150,11 +171,113 @@ static sns_status_t proto_mqtt_attempt_connect(proto_mqtt_client_t *client,
         return status;
     }
 
-    client->connected = 1U;
+    client->connected = 0U;
+    client->state = PROTO_MQTT_STATE_SENDING_CONNECT;
     client->awaiting_ping_response = 0U;
+    client->receive_length = 0U;
+    client->last_io_ms = now_ms;
+    client->connack_deadline_ms = now_ms + client->connect_timeout_ms;
+    return SNS_OK;
+}
+
+static sns_status_t proto_mqtt_receive_append(proto_mqtt_client_t *client)
+{
+    uint16_t received = 0U;
+    uint16_t available;
+    sns_status_t status;
+
+    if (client->receive_length >= client->work_capacity) {
+        return SNS_ERR_NO_SPACE;
+    }
+    available = (uint16_t)(client->work_capacity - client->receive_length);
+    status = client->net->ops->recv(client->net->ctx,
+                                    &client->work_buffer[client->receive_length],
+                                    available, &received);
+    if (status != SNS_OK) {
+        return status;
+    }
+    if ((received == 0U) || (received > available)) {
+        return SNS_ERR_IO;
+    }
+    client->receive_length = (uint16_t)(client->receive_length + received);
+    return SNS_OK;
+}
+
+static void proto_mqtt_receive_consume(proto_mqtt_client_t *client,
+                                        uint16_t length)
+{
+    uint16_t remaining = (uint16_t)(client->receive_length - length);
+
+    if (remaining > 0U) {
+        (void)memmove(client->work_buffer, &client->work_buffer[length],
+                      remaining);
+    }
+    client->receive_length = remaining;
+}
+
+static sns_status_t proto_mqtt_process_connected_receive(
+    proto_mqtt_client_t *client,
+    uint32_t now_ms)
+{
+    while (client->receive_length >= 2U) {
+        if ((client->work_buffer[0] != UINT8_C(0xD0)) ||
+            (client->work_buffer[1] != 0U)) {
+            proto_mqtt_mark_disconnected(client, now_ms);
+            return SNS_ERR_INVALID_DATA;
+        }
+        proto_mqtt_receive_consume(client, 2U);
+        client->awaiting_ping_response = 0U;
+        client->last_io_ms = now_ms;
+    }
+
+    if ((client->receive_length == 1U) &&
+        (client->work_buffer[0] != UINT8_C(0xD0))) {
+        proto_mqtt_mark_disconnected(client, now_ms);
+        return SNS_ERR_INVALID_DATA;
+    }
+    return SNS_OK;
+}
+
+static sns_status_t proto_mqtt_process_connack(proto_mqtt_client_t *client,
+                                                uint32_t now_ms)
+{
+    uint8_t acknowledge_flags;
+    uint8_t return_code;
+
+    if ((client->receive_length >= 1U) &&
+        (client->work_buffer[0] != UINT8_C(0x20))) {
+        proto_mqtt_mark_disconnected(client, now_ms);
+        return SNS_ERR_INVALID_DATA;
+    }
+    if ((client->receive_length >= 2U) &&
+        (client->work_buffer[1] != UINT8_C(0x02))) {
+        proto_mqtt_mark_disconnected(client, now_ms);
+        return SNS_ERR_INVALID_DATA;
+    }
+    if (client->receive_length < 4U) {
+        return SNS_OK;
+    }
+
+    acknowledge_flags = client->work_buffer[2];
+    return_code = client->work_buffer[3];
+    if (((acknowledge_flags & UINT8_C(0xFE)) != 0U) ||
+        (return_code > UINT8_C(0x05)) ||
+        ((return_code != 0U) && (acknowledge_flags != 0U))) {
+        proto_mqtt_mark_disconnected(client, now_ms);
+        return SNS_ERR_INVALID_DATA;
+    }
+
+    proto_mqtt_receive_consume(client, 4U);
+    if (return_code != 0U) {
+        proto_mqtt_mark_disconnected(client, now_ms);
+        return SNS_ERR_IO;
+    }
+
+    client->state = PROTO_MQTT_STATE_CONNECTED;
+    client->connected = 1U;
     client->last_io_ms = now_ms;
     client->reconnect_backoff_ms = PROTO_MQTT_RECONNECT_INITIAL_MS;
-    return SNS_OK;
+    return proto_mqtt_process_connected_receive(client, now_ms);
 }
 
 static sns_status_t proto_mqtt_send_bytes(proto_mqtt_client_t *client,
@@ -226,22 +349,37 @@ sns_status_t proto_mqtt_connect(proto_mqtt_client_t *client,
         (keepalive_seconds == 0U) || (timeout_ms == 0U)) {
         return SNS_ERR_PARAM;
     }
-    status = proto_mqtt_copy_text(client->host, PROTO_MQTT_HOST_CAPACITY, host);
+    status = proto_mqtt_validate_text(host, PROTO_MQTT_HOST_CAPACITY);
     if (status != SNS_OK) {
         return status;
     }
-    status = proto_mqtt_copy_text(client->client_id,
-                                  PROTO_MQTT_CLIENT_ID_CAPACITY, client_id);
+    status = proto_mqtt_validate_text(client_id,
+                                      PROTO_MQTT_CLIENT_ID_CAPACITY);
     if (status != SNS_OK) {
         return status;
     }
+
+    if (client->state != PROTO_MQTT_STATE_DISCONNECTED) {
+        (void)client->net->ops->close(client->net->ctx);
+        client->state = PROTO_MQTT_STATE_DISCONNECTED;
+        client->connected = 0U;
+        client->control_length = 0U;
+        client->control_sent = 0U;
+        client->receive_length = 0U;
+        if (client->queue_count > 0U) {
+            client->slots[client->queue_head].sent = 0U;
+        }
+    }
+    (void)proto_mqtt_copy_text(client->host, PROTO_MQTT_HOST_CAPACITY, host);
+    (void)proto_mqtt_copy_text(client->client_id,
+                               PROTO_MQTT_CLIENT_ID_CAPACITY, client_id);
 
     client->port = port;
     client->keepalive_seconds = keepalive_seconds;
     client->connect_timeout_ms = timeout_ms;
     client->configured = 1U;
     client->reconnect_backoff_ms = PROTO_MQTT_RECONNECT_INITIAL_MS;
-    return proto_mqtt_attempt_connect(client, now_ms);
+    return proto_mqtt_attempt_connect(client, now_ms, timeout_ms);
 }
 
 sns_status_t proto_mqtt_publish_enqueue(proto_mqtt_client_t *client,
@@ -303,7 +441,7 @@ sns_status_t proto_mqtt_poll(proto_mqtt_client_t *client,
                              uint32_t budget_ms)
 {
     uint32_t keepalive_ms;
-    uint16_t received = 0U;
+    uint32_t attempt_timeout_ms;
     sns_status_t status;
 
     if ((client == NULL) || (client->net == NULL) || (budget_ms == 0U)) {
@@ -312,11 +450,52 @@ sns_status_t proto_mqtt_poll(proto_mqtt_client_t *client,
     if (client->configured == 0U) {
         return SNS_ERR_STATE;
     }
-    if (client->connected == 0U) {
+    if (client->state == PROTO_MQTT_STATE_DISCONNECTED) {
         if (proto_mqtt_time_reached(now_ms, client->reconnect_at_ms) == 0U) {
             return SNS_ERR_NOT_READY;
         }
-        return proto_mqtt_attempt_connect(client, now_ms);
+        attempt_timeout_ms = client->connect_timeout_ms;
+        if (attempt_timeout_ms > budget_ms) {
+            attempt_timeout_ms = budget_ms;
+        }
+        return proto_mqtt_attempt_connect(client, now_ms,
+                                           attempt_timeout_ms);
+    }
+
+    if (client->state == PROTO_MQTT_STATE_SENDING_CONNECT) {
+        status = proto_mqtt_send_bytes(client, client->work_buffer,
+                                        client->control_length,
+                                        &client->control_sent, now_ms);
+        if ((status == SNS_OK) &&
+            (client->control_sent == client->control_length)) {
+            client->control_length = 0U;
+            client->control_sent = 0U;
+            client->receive_length = 0U;
+            client->state = PROTO_MQTT_STATE_WAITING_CONNACK;
+        }
+        return status;
+    }
+
+    if (client->state == PROTO_MQTT_STATE_WAITING_CONNACK) {
+        if (proto_mqtt_time_reached(now_ms,
+                                    client->connack_deadline_ms) != 0U) {
+            proto_mqtt_mark_disconnected(client, now_ms);
+            return SNS_ERR_TIMEOUT;
+        }
+        status = proto_mqtt_receive_append(client);
+        if (status == SNS_ERR_NOT_READY) {
+            return status;
+        }
+        if (status != SNS_OK) {
+            proto_mqtt_mark_disconnected(client, now_ms);
+            return status;
+        }
+        return proto_mqtt_process_connack(client, now_ms);
+    }
+
+    if (client->state != PROTO_MQTT_STATE_CONNECTED) {
+        proto_mqtt_mark_disconnected(client, now_ms);
+        return SNS_ERR_STATE;
     }
 
     keepalive_ms = (uint32_t)client->keepalive_seconds * 1000U;
@@ -326,21 +505,6 @@ sns_status_t proto_mqtt_poll(proto_mqtt_client_t *client,
         return SNS_ERR_TIMEOUT;
     }
 
-    status = client->net->ops->recv(client->net->ctx, client->work_buffer,
-                                     client->work_capacity, &received);
-    if (status == SNS_OK) {
-        if ((received == 2U) && (client->work_buffer[0] == UINT8_C(0xD0)) &&
-            (client->work_buffer[1] == 0U)) {
-            client->awaiting_ping_response = 0U;
-            client->last_io_ms = now_ms;
-        }
-        return SNS_OK;
-    }
-    if (status != SNS_ERR_NOT_READY) {
-        proto_mqtt_mark_disconnected(client, now_ms);
-        return status;
-    }
-
     if (client->control_sent < client->control_length) {
         status = proto_mqtt_send_bytes(client, client->work_buffer,
                                         client->control_length,
@@ -348,6 +512,18 @@ sns_status_t proto_mqtt_poll(proto_mqtt_client_t *client,
         if ((status == SNS_OK) && (client->control_sent == client->control_length)) {
             client->control_length = 0U;
             client->control_sent = 0U;
+        }
+        return status;
+    }
+
+    if ((client->receive_length > 0U) ||
+        (client->awaiting_ping_response != 0U)) {
+        status = proto_mqtt_receive_append(client);
+        if (status == SNS_OK) {
+            return proto_mqtt_process_connected_receive(client, now_ms);
+        }
+        if (status != SNS_ERR_NOT_READY) {
+            proto_mqtt_mark_disconnected(client, now_ms);
         }
         return status;
     }
@@ -383,6 +559,15 @@ sns_status_t proto_mqtt_poll(proto_mqtt_client_t *client,
         return status;
     }
 
+    status = proto_mqtt_receive_append(client);
+    if (status == SNS_OK) {
+        return proto_mqtt_process_connected_receive(client, now_ms);
+    }
+    if (status != SNS_ERR_NOT_READY) {
+        proto_mqtt_mark_disconnected(client, now_ms);
+        return status;
+    }
+
     return SNS_ERR_NOT_READY;
 }
 
@@ -397,9 +582,14 @@ sns_status_t proto_mqtt_close(proto_mqtt_client_t *client)
     status = client->net->ops->close(client->net->ctx);
     client->connected = 0U;
     client->configured = 0U;
+    client->state = PROTO_MQTT_STATE_DISCONNECTED;
     client->awaiting_ping_response = 0U;
     client->control_length = 0U;
     client->control_sent = 0U;
+    client->receive_length = 0U;
+    if (client->queue_count > 0U) {
+        client->slots[client->queue_head].sent = 0U;
+    }
     return status;
 }
 

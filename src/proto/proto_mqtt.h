@@ -12,6 +12,11 @@
 #define PROTO_MQTT_RECONNECT_INITIAL_MS 1000U
 #define PROTO_MQTT_RECONNECT_MAX_MS    30000U
 
+#define PROTO_MQTT_STATE_DISCONNECTED     0U
+#define PROTO_MQTT_STATE_SENDING_CONNECT  1U
+#define PROTO_MQTT_STATE_WAITING_CONNACK  2U
+#define PROTO_MQTT_STATE_CONNECTED        3U
+
 typedef struct {
     uint8_t data[PROTO_MQTT_PACKET_CAPACITY];
     uint16_t length;
@@ -30,6 +35,7 @@ typedef struct {
     uint16_t work_capacity;
     uint16_t control_length;
     uint16_t control_sent;
+    uint16_t receive_length;
     char host[PROTO_MQTT_HOST_CAPACITY];
     char client_id[PROTO_MQTT_CLIENT_ID_CAPACITY];
     uint16_t port;
@@ -38,9 +44,11 @@ typedef struct {
     uint32_t last_io_ms;
     uint32_t reconnect_at_ms;
     uint32_t reconnect_backoff_ms;
+    uint32_t connack_deadline_ms;
     uint8_t configured;
     uint8_t connected;
     uint8_t awaiting_ping_response;
+    uint8_t state;
 } proto_mqtt_client_t;
 
 sns_status_t proto_mqtt_init(proto_mqtt_client_t *client,
