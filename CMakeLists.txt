@@ -103,6 +103,26 @@ target_include_directories(test_apps PRIVATE
 
 sensor_framework_enable_warnings(test_apps)
 
+add_executable(test_mqtt
+    tests/proto/test_mqtt.c)
+
+target_link_libraries(test_mqtt PRIVATE sensor_framework)
+
+target_include_directories(test_mqtt PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+sensor_framework_enable_warnings(test_mqtt)
+
+add_executable(test_e2e
+    tests/e2e/test_e2e.c)
+
+target_link_libraries(test_e2e PRIVATE sensor_framework)
+
+target_include_directories(test_e2e PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+sensor_framework_enable_warnings(test_e2e)
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/host_demo/main.c")
     add_executable(host_demo examples/host_demo/main.c)
     target_link_libraries(host_demo PRIVATE sensor_framework)
@@ -116,4 +136,11 @@ if(BUILD_TESTING)
     add_test(NAME filters COMMAND test_filters)
     add_test(NAME sensor COMMAND test_sensor)
     add_test(NAME apps COMMAND test_apps)
+    add_test(NAME mqtt COMMAND test_mqtt)
+    add_test(NAME e2e COMMAND test_e2e)
+    if(TARGET host_demo)
+        add_test(NAME host_demo_e2e COMMAND host_demo)
+        set_tests_properties(host_demo_e2e PROPERTIES
+            PASS_REGULAR_EXPRESSION "\\[SUMMARY\\] GUI_records=[1-9]")
+    endif()
 endif()

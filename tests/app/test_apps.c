@@ -97,8 +97,11 @@ TEST(biz_tracks_literal_window_alarm_hysteresis_and_stale_quality)
 
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_init(&queue, storage, 5U,
                                                       FUNC_QUEUE_DROP_NEWEST));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_init(&biz, &queue, window, 3U,
+    TEST_ASSERT_EQ_I32(SNS_OK, func_app_biz_init(&biz, &queue, 7U, window, 3U,
                                                   30000, 28000, 5U));
+
+    event = make_temp_event(8U, 100000, FUNC_QUALITY_VALID, 5U);
+    TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_push(&queue, &event));
 
     event = make_temp_event(7U, 29000, FUNC_QUALITY_VALID, 10U);
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_push(&queue, &event));

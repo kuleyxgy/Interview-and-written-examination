@@ -92,6 +92,7 @@ TEST(two_sensor_instances_and_three_subscriber_queues_remain_isolated)
     func_sensor_registration_t second_registration = {
         2U, "second", &func_temp_driver_ops, &second_temp
     };
+    func_sensor_core_t core;
     func_sensor_event_t gui_storage[1];
     func_sensor_event_t mqtt_storage[2];
     func_sensor_event_t biz_storage[2];
@@ -103,7 +104,7 @@ TEST(two_sensor_instances_and_three_subscriber_queues_remain_isolated)
     uint16_t count = 0U;
     uint32_t dropped = 0U;
 
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_reset());
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_core_init(&core));
     TEST_ASSERT_EQ_I32(SNS_OK, func_temp_configure(&first_temp, &first_cfg));
     TEST_ASSERT_EQ_I32(SNS_OK, func_temp_configure(&second_temp, &second_cfg));
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_init(&gui_queue, gui_storage, 1U,
@@ -112,20 +113,20 @@ TEST(two_sensor_instances_and_three_subscriber_queues_remain_isolated)
                                                       FUNC_QUEUE_DROP_NEWEST));
     TEST_ASSERT_EQ_I32(SNS_OK, func_event_queue_init(&biz_queue, biz_storage, 2U,
                                                       FUNC_QUEUE_DROP_OLDEST));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_register(&first_registration));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_register(&second_registration));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_subscribe(1U, &gui_queue));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_subscribe(1U, &mqtt_queue));
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_subscribe(1U, &biz_queue));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_register(&core, &first_registration));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_register(&core, &second_registration));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_subscribe(&core, 1U, &gui_queue));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_subscribe(&core, 1U, &mqtt_queue));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_subscribe(&core, 1U, &biz_queue));
 
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_poll_all(0U));
-    TEST_ASSERT_EQ_I32(SNS_ERR_NO_SPACE, func_sensor_poll_all(10U));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_poll_all(&core, 0U));
+    TEST_ASSERT_EQ_I32(SNS_ERR_NO_SPACE, func_sensor_poll_all(&core, 10U));
 
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_get_latest(1U, &latest));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_get_latest(&core, 1U, &latest));
     TEST_ASSERT_EQ_U16(1U, latest.sensor_id);
     TEST_ASSERT_EQ_I32(11000, latest.value);
     TEST_ASSERT_EQ_U32(1U, latest.sequence);
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_get_latest(2U, &latest));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_get_latest(&core, 2U, &latest));
     TEST_ASSERT_EQ_U16(2U, latest.sensor_id);
     TEST_ASSERT_EQ_I32(21000, latest.value);
     TEST_ASSERT_EQ_U32(1U, latest.sequence);
@@ -149,7 +150,91 @@ TEST(two_sensor_instances_and_three_subscriber_queues_remain_isolated)
 
     TEST_ASSERT_EQ_U16(1U, first_source.init_calls);
     TEST_ASSERT_EQ_U16(1U, second_source.init_calls);
-    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_reset());
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_reset(&core));
+}
+
+TEST(two_sensor_cores_with_same_id_survive_independent_reset)
+{
+    temp_source_fixture_t first_source = {
+        { 11111, 0, 0, 0 }, { SNS_OK, SNS_OK, SNS_OK, SNS_OK }, 1U, 0U, 0U
+    };
+    temp_source_fixture_t second_source = {
+        { 22222, 0, 0, 0 }, { SNS_OK, SNS_OK, SNS_OK, SNS_OK }, 1U, 0U, 0U
+    };
+    proto_temp_device_t first_device = { &temp_source_ops, &first_source };
+    proto_temp_device_t second_device = { &temp_source_ops, &second_source };
+    func_temp_cfg_t first_cfg = make_temp_cfg(&first_device, 10U, 2U);
+    func_temp_cfg_t second_cfg = make_temp_cfg(&second_device, 10U, 2U);
+    func_temp_t first_temp;
+    func_temp_t second_temp;
+    func_sensor_registration_t first_registration = {
+        9U, "core-a", &func_temp_driver_ops, &first_temp
+    };
+    func_sensor_registration_t second_registration = {
+        9U, "core-b", &func_temp_driver_ops, &second_temp
+    };
+    func_sensor_core_t first_core;
+    func_sensor_core_t second_core;
+    func_sensor_event_t latest;
+
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_core_init(&first_core));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_core_init(&second_core));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_configure(&first_temp, &first_cfg));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_configure(&second_temp, &second_cfg));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_register(&first_core, &first_registration));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_register(&second_core, &second_registration));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_poll_all(&first_core, 0U));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_poll_all(&second_core, 0U));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_get_latest(&first_core, 9U, &latest));
+    TEST_ASSERT_EQ_I32(11111, latest.value);
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_get_latest(&second_core, 9U, &latest));
+    TEST_ASSERT_EQ_I32(22222, latest.value);
+
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_reset(&first_core));
+    TEST_ASSERT_EQ_I32(SNS_ERR_NOT_FOUND,
+                       func_sensor_get_latest(&first_core, 9U, &latest));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_get_latest(&second_core, 9U, &latest));
+    TEST_ASSERT_EQ_I32(22222, latest.value);
+    TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_reset(&second_core));
+}
+
+TEST(calibration_outside_i32_saturates_and_remains_valid)
+{
+    temp_source_fixture_t high_source = {
+        { 125000, 0, 0, 0 }, { SNS_OK, SNS_OK, SNS_OK, SNS_OK }, 1U, 0U, 0U
+    };
+    temp_source_fixture_t low_source = {
+        { -55000, 0, 0, 0 }, { SNS_OK, SNS_OK, SNS_OK, SNS_OK }, 1U, 0U, 0U
+    };
+    proto_temp_device_t high_device = { &temp_source_ops, &high_source };
+    proto_temp_device_t low_device = { &temp_source_ops, &low_source };
+    func_temp_cfg_t high_cfg = make_temp_cfg(&high_device, 1U, 2U);
+    func_temp_cfg_t low_cfg = make_temp_cfg(&low_device, 1U, 2U);
+    func_temp_t high_temp;
+    func_temp_t low_temp;
+    func_sensor_event_t event;
+    uint8_t ready = 0U;
+
+    high_cfg.calibration_gain_ppm = INT32_MAX;
+    high_cfg.calibration_offset_mdeg_c = INT32_MAX;
+    low_cfg.calibration_gain_ppm = INT32_MAX;
+    low_cfg.calibration_offset_mdeg_c = INT32_MIN;
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_configure(&high_temp, &high_cfg));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_configure(&low_temp, &low_cfg));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_init(&high_temp));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_init(&low_temp));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_poll(&high_temp, 0U, &event, &ready));
+    TEST_ASSERT_EQ_U16(1U, ready);
+    TEST_ASSERT_EQ_I32(INT32_MAX, event.value);
+    TEST_ASSERT_EQ_I32(FUNC_QUALITY_VALID, event.quality);
+    TEST_ASSERT_EQ_I32(SNS_OK, event.status);
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_poll(&low_temp, 0U, &event, &ready));
+    TEST_ASSERT_EQ_U16(1U, ready);
+    TEST_ASSERT_EQ_I32(INT32_MIN, event.value);
+    TEST_ASSERT_EQ_I32(FUNC_QUALITY_VALID, event.quality);
+    TEST_ASSERT_EQ_I32(SNS_OK, event.status);
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_deinit(&high_temp));
+    TEST_ASSERT_EQ_I32(SNS_OK, func_temp_deinit(&low_temp));
 }
 
 TEST(temp_driver_handles_wrap_and_valid_stale_error_valid_transitions)
@@ -202,6 +287,8 @@ TEST(temp_driver_handles_wrap_and_valid_stale_error_valid_transitions)
 int main(void)
 {
     two_sensor_instances_and_three_subscriber_queues_remain_isolated();
+    two_sensor_cores_with_same_id_survive_independent_reset();
+    calibration_outside_i32_saturates_and_remains_valid();
     temp_driver_handles_wrap_and_valid_stale_error_valid_transitions();
 
     if (test_failures != 0) {
