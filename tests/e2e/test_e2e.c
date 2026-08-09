@@ -56,6 +56,8 @@ TEST(runtime_core_clock_temp_pipeline_runs_without_optional_apps)
     };
     func_sensor_core_t core;
     func_app_runtime_t runtime;
+    func_app_mqtt_t unused_mqtt_app;
+    proto_mqtt_client_t unused_mqtt_client;
     func_sensor_event_t latest;
     uint32_t now_ms = 0U;
 
@@ -75,6 +77,14 @@ TEST(runtime_core_clock_temp_pipeline_runs_without_optional_apps)
     TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_core_init(&core));
     TEST_ASSERT_EQ_I32(SNS_OK, func_temp_configure(&temp, &cfg));
     TEST_ASSERT_EQ_I32(SNS_OK, func_sensor_register(&core, &registration));
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM,
+                       func_app_runtime_init(&runtime, &core, &clock,
+                                             NULL, NULL, &unused_mqtt_app,
+                                             NULL, 1U));
+    TEST_ASSERT_EQ_I32(SNS_ERR_PARAM,
+                       func_app_runtime_init(&runtime, &core, &clock,
+                                             NULL, NULL, NULL,
+                                             &unused_mqtt_client, 1U));
     TEST_ASSERT_EQ_I32(SNS_OK, func_app_runtime_init(&runtime, &core, &clock,
                                                       NULL, NULL, NULL, NULL, 0U));
 
