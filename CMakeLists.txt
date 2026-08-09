@@ -63,6 +63,46 @@ target_include_directories(test_iface PRIVATE
 
 sensor_framework_enable_warnings(test_iface)
 
+add_executable(test_proto
+    tests/proto/test_proto.c)
+
+target_link_libraries(test_proto PRIVATE sensor_framework)
+
+target_include_directories(test_proto PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+sensor_framework_enable_warnings(test_proto)
+
+add_executable(test_filters
+    tests/func/test_filters.c)
+
+target_link_libraries(test_filters PRIVATE sensor_framework)
+
+target_include_directories(test_filters PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+sensor_framework_enable_warnings(test_filters)
+
+add_executable(test_sensor
+    tests/func/test_sensor.c)
+
+target_link_libraries(test_sensor PRIVATE sensor_framework)
+
+target_include_directories(test_sensor PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+sensor_framework_enable_warnings(test_sensor)
+
+add_executable(test_apps
+    tests/app/test_apps.c)
+
+target_link_libraries(test_apps PRIVATE sensor_framework)
+
+target_include_directories(test_apps PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests")
+
+sensor_framework_enable_warnings(test_apps)
+
 if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/examples/host_demo/main.c")
     add_executable(host_demo examples/host_demo/main.c)
     target_link_libraries(host_demo PRIVATE sensor_framework)
@@ -72,4 +112,8 @@ endif()
 if(BUILD_TESTING)
     add_test(NAME tool COMMAND test_tool)
     add_test(NAME iface COMMAND test_iface)
+    add_test(NAME proto COMMAND test_proto)
+    add_test(NAME filters COMMAND test_filters)
+    add_test(NAME sensor COMMAND test_sensor)
+    add_test(NAME apps COMMAND test_apps)
 endif()
