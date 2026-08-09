@@ -176,7 +176,6 @@ static sns_status_t proto_mqtt_attempt_connect(proto_mqtt_client_t *client,
     client->awaiting_ping_response = 0U;
     client->receive_length = 0U;
     client->last_io_ms = now_ms;
-    client->connack_deadline_ms = now_ms + client->connect_timeout_ms;
     return SNS_OK;
 }
 
@@ -260,9 +259,8 @@ static sns_status_t proto_mqtt_process_connack(proto_mqtt_client_t *client,
 
     acknowledge_flags = client->work_buffer[2];
     return_code = client->work_buffer[3];
-    if (((acknowledge_flags & UINT8_C(0xFE)) != 0U) ||
-        (return_code > UINT8_C(0x05)) ||
-        ((return_code != 0U) && (acknowledge_flags != 0U))) {
+    if ((acknowledge_flags != 0U) ||
+        (return_code > UINT8_C(0x05))) {
         proto_mqtt_mark_disconnected(client, now_ms);
         return SNS_ERR_INVALID_DATA;
     }
@@ -471,6 +469,8 @@ sns_status_t proto_mqtt_poll(proto_mqtt_client_t *client,
             client->control_length = 0U;
             client->control_sent = 0U;
             client->receive_length = 0U;
+            client->connack_deadline_ms = now_ms +
+                                           client->connect_timeout_ms;
             client->state = PROTO_MQTT_STATE_WAITING_CONNACK;
         }
         return status;
