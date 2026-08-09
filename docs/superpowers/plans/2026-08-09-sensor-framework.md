@@ -594,7 +594,7 @@ Implementation commit subject: feat: add runtime layer checks and host demo
 
 ---
 
-### Task 9: Main-Agent Verification and Documentation
+### Task 9: Initial Implementation Documentation and WIP Push
 
 **Files:**
 - Create: README.md
@@ -605,9 +605,9 @@ Implementation commit subject: feat: add runtime layer checks and host demo
 - Consumes: verified build commands, actual demo output, public headers, and final review findings.
 - Produces: accurate user-facing build, test, demo, architecture, extension, and porting guidance.
 
-- [ ] **Step 1: Main agent performs clean verification before writing claims**
+- [ ] **Step 1: Main agent performs basic verification before writing claims**
 
-Delete only the resolved absolute build directory inside the feature worktree, reconfigure, rebuild, run all CTest tests, run both layer-check commands, and run host_demo. Capture exact tool versions, test count, and representative output.
+From a clean build directory, reconfigure, build every target, run the tests delivered with the implementation tasks, run the layer checker, and run host_demo. Capture exact tool versions, current test count, and representative output. This is an initial implementation checkpoint, not the final stabilization claim.
 
 - [ ] **Step 2: Main agent writes README.md**
 
@@ -645,22 +645,40 @@ Each recommendation includes motivation, design constraint, acceptance criteria,
 
 Commit subject: docs: add build demo and roadmap guide
 
+- [ ] **Step 5: Main agent pushes the initial implementation**
+
+Push the feature branch without force:
+
+~~~powershell
+git push -u origin feature/sensor-framework-v0.1
+~~~
+
+README and the delivery report must label this checkpoint as the initial implementation awaiting the post-push QA/debug pass. A push or authentication failure stops this step but does not rewrite history.
+
 ---
 
-### Task 10: Final Review, Clean Build, and Remote Push
+### Task 10: Post-Push QA, Debug, Final Review, and Stable Push
 
 **Files:**
 - Modify only files required by final review findings.
 
-- [ ] **Step 1: Dispatch final whole-branch reviewer**
+- [ ] **Step 1: Dispatch a dedicated post-push QA subagent**
+
+The QA subagent is different from implementation agents. It reads the approved design and exercises the complete initial implementation with additional boundary, error-injection, integration, and layer-violation tests. Every discovered defect is first captured by a failing regression test with the expected failure reason. It writes a QA report and commits only valid regression tests.
+
+- [ ] **Step 2: Debug with a distinct fix subagent**
+
+Invoke superpowers:systematic-debugging for reproduced failures. Dispatch one fix subagent with the complete QA findings and failing tests, require root-cause analysis before production changes, then make all regression tests green. The main agent independently verifies each fixed symptom.
+
+- [ ] **Step 3: Dispatch final whole-branch reviewer**
 
 Generate a review package from the feature branch merge base through HEAD. The reviewer checks the approved design, this plan, the complete diff, the SDD ledger, architecture, errors, static-memory guarantees, tests, demo, and documentation.
 
-- [ ] **Step 2: Resolve final findings through one fix wave**
+- [ ] **Step 4: Resolve final findings through one fix wave**
 
 If Critical or Important findings exist, dispatch one fix subagent with the complete findings list. Require focused regression tests and a fix report, then dispatch one scoped re-review. Main agent independently verifies residual findings.
 
-- [ ] **Step 3: Run fresh release verification**
+- [ ] **Step 5: Run fresh release verification**
 
 From a clean build directory run:
 
@@ -676,7 +694,7 @@ git status --short
 
 The first six commands must exit zero. git status may show only intentionally uncommitted ignored build artifacts; all source, tests, docs, and plan files must be committed.
 
-- [ ] **Step 4: Push without rewriting remote history**
+- [ ] **Step 6: Push the stabilized follow-up without rewriting remote history**
 
 Confirm origin still equals git@github.com:kuleyxgy/Interview-and-written-examination.git, fetch remote refs, and check that the chosen remote feature branch is not ahead unexpectedly. Push with:
 
@@ -686,7 +704,7 @@ git push -u origin feature/sensor-framework-v0.1
 
 Never use force push. If authentication fails or the remote moved, stop and report the exact error instead of changing history.
 
-- [ ] **Step 5: Report delivery evidence**
+- [ ] **Step 7: Report delivery evidence**
 
 Report branch name, HEAD commit, remote ref, verification commands and counts, demo result, README path, design path, and next-version recommendation path.
 
